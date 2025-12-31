@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GeoNotifier Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        .dot { height: 10px; width: 10px; background-color: #cbd5e1; border-radius: 50%; display: inline-block; }
+        .dot-active { background-color: #22c55e; animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(34, 197, 94, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+        #map { height: 35vh; width: 100%; border-radius: 2rem; z-index: 1; }
+        .trigger-btn.active { background-color: #2563eb; color: white; border-color: #2563eb; }
+        .day-btn.active { background-color: #2563eb; color: white; }
+        
+        /* Custom Toggle Switch */
+        .switch { position: relative; display: inline-block; width: 40px; height: 20px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #2563eb; }
+        input:checked + .slider:before { transform: translateX(20px); }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 font-sans pb-32">
+
+    <div class="max-w-md mx-auto p-4">
+        <!-- Header -->
+        <header class="flex justify-between items-center py-6">
+            <div>
+                <h1 class="text-2xl font-black text-slate-900 tracking-tighter italic">GeoNotifier <span class="text-blue-600">Pro</span></h1>
+                <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Schedule & Notification Control</p>
+            </div>
+            <div id="status-badge" class="bg-white px-3 py-1.5 rounded-full shadow-sm border border-slate-100 flex items-center">
+                <span id="status-dot" class="dot mr-2"></span>
+                <span id="status-text" class="text-[10px] font-black text-slate-500 uppercase">Offline</span>
+            </div>
+        </header>
+
+        <!-- Map Area -->
+        <div class="bg-white rounded-[2.5rem] shadow-xl p-2 mb-6 border border-slate-100 overflow-hidden">
+            <div id="map"></div>
+            <div class="p-3 text-center border-t border-slate-50">
+                <p id="curr-coords" class="text-[11px] font-mono font-bold text-slate-400">地図をタップして地点を選択</p>
+            </div>
+        </div>
+
+        <!-- Registration Form -->
+        <div class="bg-white rounded-[2rem] shadow-sm p-6 mb-6 border border-slate-100">
+            <div class="space-y-5">
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">地点設定</label>
+                    <input type="text" id="loc-name" placeholder="場所の名前 (例: 会社)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium">
+                </div>
+                
+                <div class="flex gap-2 p-1.5 bg-slate-100 rounded-2xl">
+                    <button onclick="setTrigger('enter')" id="btn-enter" class="trigger-btn active flex-1 py-3 text-[10px] font-black rounded-xl border border-transparent transition-all uppercase">到着時</button>
+                    <button onclick="setTrigger('exit')" id="btn-exit" class="trigger-btn flex-1 py-3 text-[10px] font-black rounded-xl border border-transparent transition-all uppercase">出発時</button>
+                </div>
+
+                <!-- Day Selection -->
+                <div>
+                    <label class="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">通知を有効にする曜日</label>
+                    <div class="flex justify-between gap-1">
+                        <button onclick="toggleDay(0)" class="day-btn active w-full py-2 text-[10px] font-bold rounded-lg bg-slate-100 transition-all" data-day="0">日</button>
+                        <button onclick="toggleDay(1)" class="day-btn active w-full py-2 text-[10px] font-bold rounded-lg bg-slate-100 transition-all" data-day="1">月</button>
+                        <button onclick="toggleDay(2)" class="day-btn active w-full py-2 text-[10px] font-bold rounded-lg bg-slate-100 transition-all" data-day="2">火</button>
+                        <button onclick="toggleDay(3)" class="day-btn active w-full py-2 text-[10px] font-bold rounded-lg bg-slate-100 transition-all" data-day="3">水</button>
+                        <button onclick="toggleDay(4)" class="day-btn active w-full py-2 text-[10px] font-bold rounded-lg bg-slate-100 transition-all" data-day="4">木</button>
+                        <button onclick="toggleDay(5)" class="day-btn active w-full py-2 text-[10px] font-bold rounded-lg bg-slate-100 transition-all" data-day="5">金</button>
+                        <button onclick="toggleDay(6)" class="day-btn active w-full py-2 text-[10px] font-bold rounded-lg bg-slate-100 transition-all" data-day="6">土</button>
+                    </div>
+                </div>
+
+                <input type="hidden" id="target-lat">
+                <input type="hidden" id="target-lon">
+                
+                <button id="add-btn" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-sm shadow-lg shadow-blue-100 active:scale-95 transition-all uppercase tracking-widest">地点を追加</button>
+            </div>
+        </div>
+
+        <!-- List Area -->
+        <div class="mb-4 flex justify-between items-center px-2">
+            <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest">登録地点リスト</h3>
+            <button onclick="clearAll()" class="text-[10px] text-red-400 font-bold uppercase tracking-widest">全削除</button>
+        </div>
+        <div id="location-list" class="space-y-3 mb-12">
+            <!-- Items injected by JS -->
+        </div>
+
+        <!-- Main Controller -->
+        <div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-[1000]">
+            <div class="bg-white/80 backdrop-blur-xl p-2 rounded-[2.5rem] shadow-2xl border border-white/20">
+                <button id="start-btn" class="w-full py-5 bg-slate-900 text-white font-black rounded-[2rem] active:scale-95 transition-all tracking-widest uppercase text-xs">監視を開始</button>
+                <button id="stop-btn" class="w-full py-5 bg-red-500 text-white font-black rounded-[2rem] hidden active:scale-95 transition-all tracking-widest uppercase text-xs">監視を停止</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Modal -->
+    <div id="alert-modal" class="fixed inset-0 bg-slate-900/90 hidden flex items-center justify-center p-6 z-[5000] backdrop-blur-sm">
+        <div class="bg-white rounded-[3rem] p-10 w-full max-w-sm text-center shadow-2xl">
+            <div class="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl animate-bounce">🔔</div>
+            <h3 id="alert-title" class="text-2xl font-black mb-2 italic">Alert!</h3>
+            <p id="alert-body" class="text-slate-500 text-sm mb-8 font-bold leading-relaxed"></p>
+            <button onclick="closeModal()" class="w-full py-4 bg-blue-600 text-white font-black rounded-2xl text-sm uppercase">確認しました</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let locations = [];
+        let map, userMarker, watchId;
+        let markersLayer = L.layerGroup();
+        let currentTrigger = 'enter';
+        let selectedDays = [0, 1, 2, 3, 4, 5, 6];
+
+        function init() {
+            initMap();
+            loadFromStorage();
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                console.warn("HTTPSが必要です。");
+            }
+        }
+
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([35.6812, 139.7671], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            markersLayer.addTo(map);
+
+            userMarker = L.circleMarker([35.6812, 139.7671], {
+                radius: 8, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1
+            }).addTo(map);
+
+            map.on('click', (e) => {
+                document.getElementById('target-lat').value = e.latlng.lat;
+                document.getElementById('target-lon').value = e.latlng.lng;
+                document.getElementById('curr-coords').textContent = `目標: ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`;
+            });
+        }
+
+        function setTrigger(type) {
+            currentTrigger = type;
+            document.getElementById('btn-enter').classList.toggle('active', type === 'enter');
+            document.getElementById('btn-exit').classList.toggle('active', type === 'exit');
+        }
+
+        function toggleDay(day) {
+            const btn = document.querySelector(`.day-btn[data-day="${day}"]`);
+            const index = selectedDays.indexOf(day);
+            if (index > -1) {
+                selectedDays.splice(index, 1);
+                btn.classList.remove('active');
+            } else {
+                selectedDays.push(day);
+                btn.classList.add('active');
+            }
+        }
+
+        document.getElementById('add-btn').onclick = () => {
+            const name = document.getElementById('loc-name').value || '登録地点';
+            const lat = parseFloat(document.getElementById('target-lat').value);
+            const lon = parseFloat(document.getElementById('target-lon').value);
+
+            if (isNaN(lat)) return alert("地図をタップして地点を選択してください");
+            if (selectedDays.length === 0) return alert("通知を有効にする曜日を少なくとも1つ選択してください");
+
+            const newLoc = {
+                id: Date.now(),
+                name, lat, lon,
+                trigger: currentTrigger,
+                days: [...selectedDays],
+                enabled: true,
+                isInside: false
+            };
+
+            locations.push(newLoc);
+            saveToStorage();
+            renderList();
+            refreshMapMarkers();
+            
+            // Reset form
+            document.getElementById('loc-name').value = "";
+            document.getElementById('target-lat').value = "";
+            document.getElementById('target-lon').value = "";
+            document.getElementById('curr-coords').textContent = "地図をタップして地点を選択";
+        };
+
+        function refreshMapMarkers() {
+            markersLayer.clearLayers();
+            locations.forEach(loc => {
+                if (!loc.enabled) return;
+                const color = loc.trigger === 'enter' ? '#22c55e' : '#f59e0b';
+                L.circle([loc.lat, loc.lon], { radius: 150, color: color, opacity: 0.3, fillOpacity: 0.05 }).addTo(markersLayer);
+                L.marker([loc.lat, loc.lon]).addTo(markersLayer).bindPopup(loc.name);
+            });
+        }
+
+        function renderList() {
+            const list = document.getElementById('location-list');
+            list.innerHTML = "";
+            locations.forEach((loc) => {
+                const dayLabels = ["日", "月", "火", "水", "木", "金", "土"];
+                const dayText = loc.days.length === 7 ? "毎日" : loc.days.map(d => dayLabels[d]).join(",");
+
+                const div = document.createElement('div');
+                div.className = `p-5 bg-white rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-3 transition-opacity ${loc.enabled ? '' : 'opacity-60 grayscale'}`;
+                div.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="text-[8px] font-black px-2 py-0.5 rounded-full ${loc.trigger === 'enter' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'} uppercase">${loc.trigger === 'enter' ? '到着' : '出発'}</span>
+                                <p class="font-bold text-slate-800 text-sm">${loc.name}</p>
+                            </div>
+                            <p class="text-[10px] text-slate-400 font-bold"><span class="mr-1 italic">Schedule:</span> ${dayText}</p>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button onclick="deleteLoc(${loc.id})" class="text-slate-300 hover:text-red-400 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                            </button>
+                            <label class="switch">
+                                <input type="checkbox" ${loc.enabled ? 'checked' : ''} onchange="toggleLoc(${loc.id})">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function toggleLoc(id) {
+            const loc = locations.find(l => l.id === id);
+            if (loc) {
+                loc.enabled = !loc.enabled;
+                saveToStorage();
+                renderList();
+                refreshMapMarkers();
+            }
+        }
+
+        function deleteLoc(id) {
+            if (confirm("この地点を削除しますか？")) {
+                locations = locations.filter(l => l.id !== id);
+                saveToStorage();
+                renderList();
+                refreshMapMarkers();
+            }
+        }
+
+        document.getElementById('start-btn').onclick = () => {
+            document.getElementById('start-btn').classList.add('hidden');
+            document.getElementById('stop-btn').classList.remove('hidden');
+            document.getElementById('status-dot').classList.add('dot-active');
+            document.getElementById('status-text').textContent = "Monitoring";
+
+            watchId = navigator.geolocation.watchPosition(updatePosition, (err) => {
+                alert("GPS Error: " + err.message);
+                stopMonitoring();
+            }, { enableHighAccuracy: true });
+        };
+
+        function updatePosition(pos) {
+            const { latitude, longitude } = pos.coords;
+            userMarker.setLatLng([latitude, longitude]);
+            map.panTo([latitude, longitude]);
+
+            const now = new Date();
+            const today = now.getDay();
+
+            locations.forEach(loc => {
+                if (!loc.enabled) return;
+                if (!loc.days.includes(today)) return;
+
+                const distance = map.distance([latitude, longitude], [loc.lat, loc.lon]);
+                const currentlyInside = distance <= 150;
+
+                if (loc.trigger === 'enter' && currentlyInside && !loc.isInside) {
+                    notify(loc, "に到着しました。");
+                } else if (loc.trigger === 'exit' && !currentlyInside && loc.isInside) {
+                    notify(loc, "から離れました。");
+                }
+                loc.isInside = currentlyInside;
+            });
+        }
+
+        function notify(loc, msg) {
+            document.getElementById('alert-title').textContent = loc.name;
+            document.getElementById('alert-body').textContent = msg;
+            document.getElementById('alert-modal').classList.remove('hidden');
+            if ('speechSynthesis' in window) {
+                const uttr = new SpeechSynthesisUtterance(`${loc.name}${msg}`);
+                uttr.lang = 'ja-JP';
+                speechSynthesis.speak(uttr);
+            }
+        }
+
+        function stopMonitoring() {
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+            document.getElementById('start-btn').classList.remove('hidden');
+            document.getElementById('stop-btn').classList.add('hidden');
+            document.getElementById('status-dot').classList.remove('dot-active');
+            document.getElementById('status-text').textContent = "Offline";
+        }
+        document.getElementById('stop-btn').onclick = stopMonitoring;
+
+        function closeModal() { document.getElementById('alert-modal').classList.add('hidden'); }
+        function saveToStorage() { localStorage.setItem('geo_notifier_v2_locs', JSON.stringify(locations)); }
+        function loadFromStorage() {
+            const stored = localStorage.getItem('geo_notifier_v2_locs');
+            if (stored) {
+                locations = JSON.parse(stored);
+                renderList();
+                refreshMapMarkers();
+            }
+        }
+        function clearAll() {
+            if(confirm("すべてのデータを削除しますか？")) {
+                localStorage.removeItem('geo_notifier_v2_locs');
+                location.reload();
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
